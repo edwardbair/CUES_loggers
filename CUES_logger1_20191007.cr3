@@ -1,0 +1,196 @@
+'CR3000 Logger 1 program
+'SPN1 read by serial port
+'Updated 9/19/2018 to remove Trustman snow pillows and ws600; updated constants
+'Ned Bair CWC, 11/2019
+
+'DECLARATIONS
+'Use Degrees NOT Radians
+AngleDegrees
+
+'Change these constants when you change the Radiometers. Note the calibration sensitivities are given in units of (micro) um Volts / W m^-2. The 
+'VoltDiff command uses mV (milliVolts). So to convert X mV to W/m^2, use the first k value (Vx10^-6 V/(W m^-2)) and X mV x 1000 uV / 1 mV x W m^-2 /k microV
+
+Const PSP_Up = 1000/10.10 'SN 113431F3, installed 2018-9-11
+Const PSP_Dwn = 1000/7.85 'SN 29904F3, installed 2018-9-11
+Const PSP_Bunk_Dwn = 1000/7.82 'SN 29774f3, installed 2018-9-11
+Const PSP_RED_Up = 1000/8.66 'SN 29448f3, installed 2018-9-11
+Const PSP_RED_Dwn = 1000/8.82 'SN 12608F3, installed 2018-9-11
+Const PSP_RED_Bunk_Dwn= 1000/9.67 'SN 14502F3, installed 2018-9-11  
+Const PIR= 1000/3.83 'SN 32037F3, installed 2018-9-11
+
+'constants for longwave computation
+Const con1=0.0010295
+Const con2=0.0002391
+Const con3=0.0000001568
+Const const_S_B=5.6704*PWR(10,-8)
+
+'Apogee Constants
+
+Const mC2 = 76194.3
+Const mC1 = 8067740
+Const mC0 = 1446580000
+
+Const bC2 = 5050.7
+Const bC1 = 67968.5
+Const bC0 = -3334730
+Public Time(9)
+Alias Time(1)=year
+Alias Time(2)=month
+Alias Time(3)=jour
+Alias Time(4)=hour
+Alias Time(5)=minute
+
+Public Sunrise As String *20
+Public Sunset As String *20
+Public SunFlag As Boolean
+
+
+Public SB_TempC
+Public SB_TempK
+Public Targ_mV
+Public  m, b
+Public Targ_TempK 
+Public Targ_TempC
+ 
+'LongWave Radiatioln Terms
+Public LongWave_in
+Public therm_mv
+Public therm_ohm
+Public LW_Temp_K
+Public up_therm2
+Public LongWaveIn_mv
+Public ref_temp
+Public batt
+
+'Wind Speed/Direction from RM Young Terms
+Public upper_ws
+Public upper_dir
+
+' Radiometers
+Public up_clr
+'Public Shadow_bd
+Public up_red
+Public down_clr
+Public down_red
+Public bunk_dwn
+Public bunk_dwn_red
+
+' Delta T shadow band
+Public SPN_total
+Public SPN_diff
+Public sun As Boolean
+Public SPN1String As String *18
+Public SPN1(3)
+
+'Output Tables
+
+DataTable(Radiometers,1,-1)
+  CardOut(0,-1)
+	DataInterval(0,1,Min,0)
+  Sample (1, sun, Boolean)
+
+  Average(1, up_clr, IEEE4, 0)
+	Average(1, down_clr, IEEE4, 0)
+	Average(1, up_red, IEEE4, 0)
+	Average(1, down_red, IEEE4, 0)
+	Average(1, bunk_dwn, IEEE4, 0)
+	Average(1, bunk_dwn_red, IEEE4, 0)
+	
+  Average(1, SPN_total, IEEE4,0)
+	Average(1, SPN_diff,IEEE4,0)
+	
+	Average(1, LongWave_in, IEEE4, 0)
+	Average(1, LongWaveIn_mv, IEEE4,0)
+  Average(1,LW_Temp_K, IEEE4, 0)
+
+	Average(1,SB_TempC,fp2, false)
+	Average(1,Targ_Mv, fp2, False)
+	Average(1,Targ_TempC,fp2, false)
+EndTable
+
+DataTable(Winds,1,-1)
+  CardOut(0,-1)
+	DataInterval(0,1,Min,0)
+	WindVector(1, upper_ws, upper_dir, IEEE4, 0, 0, 0, 0)
+	FieldNames("PV_WindSpeed:m/s,PV_WindDir:m/s,PV_SD_WndDir:none")
+EndTable
+    
+'DataTable for SPN1 Sunshine Parameter 
+DataTable(daily,1,-1)
+  CardOut(0,-1)
+  DataInterval(23,24,Hr,0)
+  Sample(1,Sunrise,String)
+  Sample(1,Sunset,String)
+EndTable
+
+'Main Program
+
+BeginProg
+	Scan(5,Sec, 3, 0)
+	 'Apogee Radiometer
+	 Therm109 (SB_TempC,1,9,Vx2,0,_60Hz,1,0)
+	 VoltDiff (Targ_mV,1,mV20,4,True,0,_60Hz,1,0)
+	 m = mC2 * SB_TempC^2 + mC1 * SB_TempC + mC0
+	 b = bC2 * SB_TempC^2 + bC1 * SB_TempC + bC0
+	 
+	 'Calc Target Temperature
+	 SB_TempK=SB_TempC + 273.15
+	 Targ_TempK=(SB_TempK^4+m*Targ_mV+b)^0.25
+	 Targ_TempC =Targ_TempK - 273.15	  		
+		'Young Wind Speed and Direction
+		PulseCount(upper_ws,1, 1, 1, 1, 0.098, 0)
+		BrHalf(upper_dir, 1,mV1000, 1, VX1, 1, 1000,True, 0,_60Hz,355, 0)
+		
+		'Longwave Eppley - IN
+		VoltDiff(LongWaveIn_mv, 1, mV20, 2, True, 0,_60Hz, PIR, 0)
+		' settling time was 0 -- changed to 10000
+		BrHalf(therm_mv, 1,mV200, 5, VX3, 1, 100,True,0,_60Hz, 1, 0)
+		' Calculation for non battery powered PIR.
+		therm_ohm = (7.5*(therm_mv/(1.0-therm_mv)))*1000
+		
+		LW_Temp_K = 1/(con1+con2*LN(therm_ohm)+con3*(LN(therm_ohm))^3)
+		LongWave_in = LongWaveIn_mv+const_S_B*(LW_Temp_K)^4
+		
+		'ShortWave Radiomter Measurements
+		VoltDiff(up_clr, 1,AutoRange, 8, true, 0,_60Hz, PSP_Up, 0)
+		VoltDiff(up_red, 1,AutoRange, 9, true,0,_60Hz, PSP_RED_Up, 0)
+		VoltDiff(down_clr, 1,AutoRange, 10, true, 0,_60Hz, PSP_Dwn, 0)
+		VoltDiff(down_red, 1,AutoRange,11, true, 0,_60Hz, PSP_RED_Dwn, 0)
+		VoltDiff(bunk_dwn, 1,AutoRange,12, true, 0,_60Hz, PSP_Bunk_Dwn, 0)
+		VoltDiff(bunk_dwn_red, 1,AutoRange,13, true, 0,_60Hz, PSP_RED_Bunk_Dwn, 0)
+		
+		'Read SPN1 Autoshadowband
+      SerialOpen(Com4,9600,0,0,0)
+      Delay(1,5,mSec)
+      SerialOut(Com4,"S","",0,0)
+      SerialIn(SPN1String,Com4,100,13,18)
+      SerialClose(Com4)
+      
+      ' ** Changes SPN1 String into SPN1 component numbers
+		  SplitStr(SPN1(1),SPN1String,"none",3,0)
+		  SPN_total = SPN1(1)
+		  SPN_diff = SPN1(2)
+		  sun = SPN1(3)
+		  
+		 	If (SunFlag = False)
+		   If (sun = True)
+		        RealTime(Time())
+		        Sunrise = year+"/"+month+"/"+jour+"  "+hour+":"+minute
+		        SunFlag = True
+		   EndIf
+	    EndIf
+	 
+	    If (SunFlag = True)
+		   If (sun = False)
+		        RealTime(Time())
+		        Sunset = year+"/"+month+"/"+jour+"  "+hour+":"+minute
+		        SunFlag = False
+		   EndIf
+	   EndIf
+	 
+		CallTable Winds
+		CallTable Radiometers
+		CallTable daily
+	
+	NextScan
+EndProg

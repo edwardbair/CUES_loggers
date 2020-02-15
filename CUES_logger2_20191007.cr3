@@ -1,0 +1,276 @@
+'CUES CR3000 Logger 2 
+'CR3000 Series Datalogger
+' Ned Bair , CWC 11/2019
+
+'Const Plat_depth_offset= 619
+'Const Plat_Distance_offset = 0
+Const Remote_boom_offset = 628
+'Const Windmast_depth_offset= 582
+'Const Windmast_depth_offset= 577
+'Const Windmast_distance_offset = 131.45
+Const Windmast_distance_offset = 0
+'Const Windmast_depth_offset = 584
+Const Windmast_depth_offset = 586
+'Const Boom_Pinger_depth_offset = 0
+Const Adj_Boom_Pinger_distance_offset = -5
+Const Snow_Pillow_offset = -68.51
+
+'Declare Constants for Thermistor calculations for in ground probe.
+Const Const1 = 14661 * PWR(10,-7)
+Const Const2 = 23857 * PWR(10,-8)
+Const Const3 = 10049 * PWR(10,-11)
+
+'Telaire 8200 temperature thermister variables, uses GE NTC TYPE DC95 material type F thermister
+Public Therm_R, Therm_Rd25, Therm_Ln 'resistance
+Const a=3.3540154E-03 'Coefficients from NTC thermister table, p2 bottom left
+Const b=2.5627725E-04
+Const c=2.0829210E-06
+Const d=7.3003206E-08
+
+'Public PTemp, batt_volt
+Public Tip(8)
+Public SoilMoisture(12)
+Public xTerm
+'Public SoilTemperature(30)
+Public SoilTempOut(30)
+Public Therm_Ohm(30)
+Public PlatRh
+Public PlatTemperature
+Public Snow_T107_C(10)
+'Public Plat_depth, plat_distance
+Public LaserBuffer(6)
+Public LaserSnowDepth, LaserNormalizedSignal 
+Public LaserSnowFlag
+Public RemoteBoom_depth
+Public WindMast_pingerRAW(2)
+Alias  WindMast_pingerRAW(2) = WindMast_SnowQuality
+Public WindMast_CORR, WindMast_distance 
+Public WindMast_depth
+
+Public Adj_Boom_PingerRAW(2)
+Alias  Adj_Boom_PingerRAW(2) = Adj_Boom_Pinger_SnowQuality
+Public Adj_Boom_Pinger_CORR, Adj_Boom_Pinger_distance 
+'Public Adj_Boom_Pinger_depth
+
+Public Tip_Liters(8)
+Public CoTwo, BunkerTemp, LidarTemp
+Public Barometer
+Public Snow_Pillow_mV
+Public Snow_Pillow_SWE
+
+'Declare Other Variables
+Dim I,J
+'Dim Term2,Term3,RtoC
+'Dim Dummy(20)
+
+' Data Table Melt gives tipping buckets in order 1 - 8
+' then 12 Soil Moisture probes first 6 are south
+' second 6 are North
+' #1 is top of South and #7 is top of North
+' Sensor Depths are 10,20,30,40,60,and 100 cm
+DataTable (MELT,1,-1)
+CardOut(0,-1)
+	DataInterval (0,15,Min,0)
+	Sample (8,Tip_Liters(),IEEE4)
+	FieldNames("T_Bucket1:L,T_Bucket2:L,T_Bucket3:L,T_Bucket4:L,T_Bucket5:L,T_Bucket6:L,T_Bucket7:L,T_Bucket8:L")
+	Average (6,SoilMoisture(1),IEEE4,0)
+	FieldNames("S_Soil_M10cm:Volts,S_Soil_M20cm:Volts,S_Soil_M30cm:Volts,S_Soil_M40cm:Volts,S_Soil_M60cm:Volts,S_Soil_M100cm:Volts")
+	Average (6,SoilMoisture(7),IEEE4,0)
+	FieldNames("N_Soil_M10cm:Volts,N_Soil_M20cm:Volts,N_Soil_M30cm:Volts,N_Soil_M40cm:Volts,N_Soil_M60cm:Volts,N_Soil_M100cm:Volts")
+EndTable
+
+'Data Table RH_Temp gives Platform RH, temperature, snow temperature 107 probes,
+'and soil temperature where soil temp are 1-10 and 0 to -90 cm in 10cm decrements
+DataTable (RH_TEMPERATURES,1,-1)
+CardOut(0,-1)
+	DataInterval(0,60,sec,0)
+	Sample (1,PlatRh,IEEE4)' RH first then Platform Temperature
+	FieldNames("Plat_RH:PCT")
+	Sample (1,PlatTemperature,IEEE4) ' Platform Temperature
+	FieldNames("Plat_Temp:DegC")
+	Sample (8,Snow_T107_C(),IEEE4)
+	FieldNames("SnowTemp1:DegC,SnowTemp2:DegC,SnowTemp3:DegC,SnowTemp4:DegC,SnowTemp5:DegC,SnowTemp6:DegC,SnowTemp7:DegC,Snowtemp8")
+	Sample (30,SoilTempOut(),IEEE4) ' 0 to -90 CM at -10cm depths
+	Sample (1,CoTwo,IEEE4)
+	FieldNames("CO2:PPM")
+	Sample (1,BunkerTemp,IEEE4)
+	FieldNames("BunkerTemp:C")
+	Sample (1,LidarTemp,IEEE4)
+	FieldNames("LidarTemp:C")
+	Sample (1,Barometer,IEEE4)
+	FieldNames("Station_Pressure:mBars")
+EndTable
+
+DataTable (SNOW_DEPTH,1,-1)
+CardOut(0,-1)
+	DataInterval(0,5,Min,0)
+		Sample (1,RemoteBoom_depth,IEEE4)
+		FieldNames("RemoteBoom_depth:cm") 
+
+		'Sample (1,Plat_depth,IEEE4)
+		'FieldNames("Plat_sno_depth:cm")
+
+		'Sample (1,plat_distance,IEEE4)
+		'FieldNames("Distance_Snow_to_Plat_Boom:cm")
+		
+		Sample (1,LaserSnowDepth,IEEE4)
+		FieldNames("LaserSnowDepth:cm")
+
+		Sample (1,LaserNormalizedSignal,IEEE4)
+		FieldNames("LaserNormalizedSignal:0to255")
+		
+		Sample (1,LaserSnowFlag,UINT2)
+		FieldNames("LaserSnowFlag:boolean")
+    
+    Sample (1,WindMast_depth,IEEE4)
+		FieldNames("WindMast_depth:cm")
+
+		Sample (1,WindMast_distance,IEEE4)
+		FieldNames("WindMast_distance_to_SonicCenter:cm") 'Quality of Windmast Snow Reading Numbers between 162 and 210 are best
+
+		Sample (1,WindMast_SnowQuality,IEEE4)
+		FieldNames("WindMast_Snow_Quality_number:# between 162 & 210 best")
+		
+		Sample (1,Adj_Boom_Pinger_distance,IEEE4)
+		FieldNames("Dist_Adj_Boom_Rads_to_Surface:cm")
+
+		Sample (1,Adj_Boom_Pinger_SnowQuality,IEEE4)
+		FieldNames("Adj_Boom_Pinger_Snow_Qual_#:# between 162 & 210 best")
+		
+		Sample (1,Snow_Pillow_mV,IEEE4)
+		FieldNames("SnowPillow_voltage:mV")
+	
+	  Sample (1,Snow_Pillow_SWE,IEEE4)
+	  FieldNames("SnowPillow_SWE:cm")
+	
+EndTable
+
+' Main Program
+BeginProg
+
+	SequentialMode 
+	
+	Scan (60,Sec,5,0)
+	  
+	  ' MUX 3 Air/Snow Temperatures
+		PortSet(5,1) 'SET Mux3
+		I=1
+		SubScan(0,mSec,8)
+			'Switch to next AM416 Multiplexer channel
+			PulsePort(6,10000)
+			'107 Temperature Probe (4-wire) measurements T107_C on the AM416 Multiplexer:
+			Therm107(Snow_T107_C(I),1,1,3,3000,_60Hz,1.0,0)
+			I=I+1
+		NextSubScan
+		PortSet(5,0) ' Reset MUX3
+
+' Set MUX2 Soil Temperatures
+		I=1 ' reset I to initial value
+		PortSet(4,1)' Set MUX2
+		SubScan(0,mSec,30)
+			PulsePort(3,10000)
+			BrFull(xTerm,1,mV200,4,2,1,200,1,1,5000,_60Hz,1,0)
+			xTerm = (-xTerm/1000) + (10/(10+10))
+			therm_ohm(I) = 10*(xTerm/(1-xTerm))*1000' BR Transform Rf[X/1-X]
+			SoilTempOut(I) = (1/(const1+const2*LN(therm_ohm(I))+const3*(LN(therm_ohm(I)))^3))-273.15
+			I=I+1
+		NextSubScan
+		PortSet(4,0)' RESET MUX2
+
+		I=1
+		PortSet(2,1)' Set MUX1 Soil Moisture gauges
+		SubScan(0,mSec,12)
+			PulsePort(1,10000)
+      'Measure soil moisture gauges -- output in mVolts
+			VoltDiff(SoilMoisture(I),1,mV5000,6,0,3000,_60Hz,1.0,0)
+			I=I+1
+		NextSubScan
+
+		PortSet(2,0)' RESET MUX1
+		
+    'Platform temp.
+    VoltSe(PlatTemperature,1,mV1000,9,0,3000,_60Hz,.1,-40)
+    'Platform RH
+    VoltSe(PlatRh,1,mV1000,10,0,3000,_60Hz,.1,0)
+    'CO2 from T8200-10P,0-5000 mV (jumper J3 on) is 0-10,0000 ppm
+		VoltSe(CoTwo,1,mV5000,28,0,3000,_60Hz,2,0)
+		'BunkerTemp from thermister, GE NTC TypeDC95
+		Resistance(Therm_R,1,mV5000,13,Ix1,1,150,True,True,10000,_60Hz,1.0,0.0)
+		Therm_Rd25=Therm_R/1e4
+		Therm_Ln=LN(Therm_Rd25)
+		BunkerTemp=(1/(a+b*(Therm_Ln)+c*(Therm_Ln)^2+d*(Therm_Ln)^3))-273.15 ' temp converted to C
+
+    Therm107(LidarTemp,1,17,1,3000,_60Hz,1.0,0)
+   
+    '  SNOW PILLOW MEASUREMENT -- SINGLE ENDED, 0 - 5 VOLTS.
+    VoltSe(Snow_Pillow_mV,1,mV5000,21,0,3000,_60Hz,1.0,0)
+    Snow_Pillow_SWE = Snow_Pillow_mV * 0.085 + Snow_Pillow_offset
+		' Read Depth Sensor from Platform Boom,set to NAN while sensor is gone, 2/21/18 NB
+		'Plat_depth=NAN 'NB 10/2/2018
+		'VoltDiff(Plat_depth,1,mV5000,7,0,3000,_60Hz,-.25,Plat_depth_offset)
+		'Plat_distance = Plat_depth_offset - Plat_depth + Plat_distance_offset
+		' Read Depth Sensor from REMOTE Boom
+		VoltDiff(RemoteBoom_depth,1,mV5000,8,0,3000,_60Hz,-.25,Remote_boom_offset)
+
+		' Wind Mast snow Pinger and Adjustable Radius (Rads) Snow Pinger is a Campbell SR50 Snow Depth Gauge
+        SDI12Recorder(WindMast_pingerRAW(),7, 0, "M1!", 100,0)
+        SDI12Recorder(Adj_Boom_PingerRAW(),7,1,"M1!",100,0
+        SDI12Recorder(LaserBuffer(),7,2,"M2!",1,0)
+        'equivalent terminal command is "2M2!" followed by "2D0!
+'which shoulder yield a datagram with address+RunTime(s)+SnowDepth(mm)+SnowFlag+NormalizedSignal
+' i.e.
+'CR3000>SDI12
+'1: C1
+'2: C3
+'3: C5
+'4: C7
+'Select SDI12 Port: 4
+'Entering SDI12 Terminal
+'2M2!
+'20007
+'secs remaining until ready: 000
+'2D0!
+'2+6+0.0+0+0+0
+        
+        WindMast_SnowQuality = WindMast_SnowQuality/100
+        Adj_Boom_Pinger_SnowQuality = Adj_Boom_Pinger_SnowQuality/100
+        WindMast_CORR=(WindMast_PingerRaw(1)*(SQR((PlatTemperature+273.15)/273.15)))
+        Adj_Boom_Pinger_CORR=(Adj_Boom_PingerRaw(1)*(SQR((PlatTemperature+273.15)/273.15)))
+        
+        WindMast_depth =  -(Windmast_depth_offset - WindMast_CORR)
+        WindMast_distance = WindMast_corr + Windmast_distance_offset 
+       	Adj_Boom_Pinger_Distance = Adj_Boom_Pinger_CORR + Adj_Boom_Pinger_Distance_Offset			
+		  	WindMast_depth = WindMast_depth * -1
+		
+				LaserSnowDepth=LaserBuffer(2)/10 'mm to cm
+				'LaserSnowFlag=LaserBuffer(3) set at 130 - too high, using 60
+				LaserNormalizedSignal=LaserBuffer(5)
+				LaserSnowFlag=0
+				If LaserNormalizedSignal >= 60 Then
+				LaserSnowFlag=1
+				EndIf
+				
+		VoltDiff(Barometer,1,mV5000,12,0,3000,_60Hz,0.06,600)
+		' NOT Corrected for site elevation of 9631 feet. 
+		' Offset of 600 set for transducer Range at transducer 600 - 900 millibars
+		
+		' IMPORTANT This seems to need to be last! (No endif?) wouldn't compile with it. 
+		If TimeIntoInterval(0,15,Min) Then
+				Delay (2,5,Sec)' Option 2 (The first Number), 5 sec is time to delay, is specific to successive calls to SDM devices		
+				SDMSW8A (Tip(),8,1,2,1,1,0)
+				' Calculate Volume from first 8 tipping buckets  The Number 9 after for loop
+				For J=1 To 8 Step 1
+					Tip_Liters(J) = Tip(J) * .08
+				Next J
+				' Big tipping bucket (#9) is 1.5 Liters per tip
+				' Tip_Liters(9) = Tip(9) * 1.5
+		EndIf
+	
+	' Call output Tables
+		CallTable MELT
+		CallTable RH_TEMPERATURES
+		CallTable SNOW_DEPTH
+			
+	NextScan
+EndProg
+

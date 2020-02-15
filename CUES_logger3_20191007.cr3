@@ -1,0 +1,120 @@
+'CUES CR3000 Logger 3 program
+'11/2019 Ned Bair, CWC
+
+AngleDegrees
+
+Public SonicRaw(5)
+Alias SonicRaw(1)=U
+Alias SonicRaw(2)=V
+Alias SonicRaw(3)=W
+Alias SonicRaw(4)=AirTemperature
+Alias SonicRaw(5)=ErrorCode
+
+Units U=m/s
+Units V=m/s
+Units W=m/s
+Units AirTemperature=deg C
+Units ErrorCode=none
+
+Const ScanInterval = 100 ' ms
+Const ScanBufferSize = 60*INT(1000/ScanInterval) 'ensures deep enough scan buffer
+
+'RM Young 81000 configuration:
+'wire for RS232 serial communication, C1
+'connect via Campbell Sci Terminal Emulator, then "escape" 3X to go into config mode
+
+' COMMANDS (VERSION 7.0.05 )
+' -------------------------
+' R) REPORT
+' S) SETUP - type S for setup
+' x) Exit To OPERATE MODE
+
+' SET PARAMETERS
+ '-------------------------
+ 'A) AVERAGING - 0 no averaging
+ 'B) BAUD - 38400 baud
+ 'E) ERROR HANDLING - 1 include invalid data
+ 'N) SCALING MULT - 10000
+ 'O) OUTPUT RATE - 20 Hz ! important - use 20Hz for 10Hz scan rate 
+ '         so that there's always a full record
+ 'P) POLL CHARACTER (ADDR) - not used
+ 'S) SER OUT FORMAT - 5BE (UVW Ts ErrorCode)
+ 'T) THRESHOLD - 20 cm/s
+ 'U) Units - m/s
+ 'V) V OUT FORMAT - not used
+ 'W) WAKE CORRECTION -  yes
+ 'x) Exit To MAIN MENU
+
+
+'RMYoung 81000 output, second two lines
+'columns: U V W Temperature ErrorCode'
+'"  -3.34  -1.23   0.57   12.23   0
+'  -4.12  -3.45  -0.47   12.48   0"
+
+'in hex (time value and R are record placeholders)
+'14:42:57.69 R 20 20 2D 30 2E 31 37 20 20 20 31 2E 39 34 20 20    -0.17   1.94  
+'14:42:57.69 R 20 30 2E 34 32 20 20 20 31 33 2E 33 32 20 20 20   0.42   13.32   
+'14:42:57.69 R 30 0D                                             0 
+
+Const NBytesExpected = 33 'size of string above, excluding endword (&h0D)
+Const RecordsSecond = 10
+Const SerialBufferSize = (NBytesExpected+1)*(Ceiling(RecordsSecond/1000))+NBytesExpected+2
+Public SonicBuffer As String * 100, NBytesReturned
+
+'Raw and not lagged KH20 data.
+Public kh(2)
+Public rho_w
+Alias kh(1)=kh_mV
+Alias kh(2)=ln_kh
+Units rho_w=g/m^3
+
+Const ln_v0 = 8.723                  'ln of offset, ln(mV), full range, clean window
+Const x = 1.222                      'Unique path length of the KH20 [cm]. from cal sheet
+Const kw = -0.151                    'Unique absorption coefficient for water vapor [m^3 / (g cm)]. full range from cal sheet
+Const xkw = x*kw 										 'Path length times water vapor absorption coefficient [m^3 / g].
+
+DataTable(Sonic,1,-1)
+  CardOut(0,-1)
+  DataInterval(0,100,mSec,1)
+  Sample(5,SonicRaw(),FP2)
+  Sample(1,rho_w,IEEE4)
+EndTable
+
+DataTable(Winds,1,-1)
+  CardOut(0,-1)
+	DataInterval(0,1,Min,0)
+  WindVector(1,U,V,FP2,0,0,1,0)
+	FieldNames ("mean_wind_speed:m/s, mean_wind_direction:deg, std_wind_dir:deg")
+	Average(1,U,FP2,0)
+	Average(1,V,FP2,0)
+  Average(1,W,FP2,0)
+  Average(1,AirTemperature,FP2,0)
+  Average(1,rho_w,FP2,0)
+  StdDev(1,U,FP2,0)
+  StdDev(1,V,FP2,0)
+  StdDev(1,W,FP2,0)
+  StdDev(1,AirTemperature,FP2,0)
+  StdDev(1,rho_w,FP2,0) 
+EndTable
+
+'Main Program
+
+BeginProg
+    'RMYoung 81000 - 38400 bps, no parity, 1 stop, 8 data bits
+	  SerialOpen (Com1,38400,3,0,SerialBufferSize)
+	  Scan(ScanInterval,mSec,ScanBufferSize,0)  '10 Hz scan rate
+	   'capture all data prior to &h0D (<CR>)
+	   SerialInRecord(Com1,SonicBuffer,0,NBytesExpected,&h0D,NBytesReturned,01)
+	   SplitStr (SonicRaw(1),SonicBuffer," ",5,0)
+	   
+		VoltDiff(kh_mV,1,mV5000,5,TRUE,200,250,1,0)
+		  
+			ln_kh=LOG(kh_mV)
+			rho_w=(1/xkw)*(ln_kh-ln_v0) 'manual for KH20 has a mistake, xkw
+			'is already negative on the calbration sheet, thus use positive
+			
+		CallTable Sonic
+		CallTable Winds
+
+	NextScan
+EndProg
