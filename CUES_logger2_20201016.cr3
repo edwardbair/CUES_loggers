@@ -1,6 +1,6 @@
 'CUES CR3000 Logger 2 
 'CR3000 Series Datalogger
-' Ned Bair , CWC 11/2019
+' Ned Bair 10/2020
 
 'Const Plat_depth_offset= 619
 'Const Plat_Distance_offset = 0
@@ -126,13 +126,13 @@ CardOut(0,-1)
 		FieldNames("LaserSnowFlag:boolean")
 		
     Sample (1,LaserNorthSnowDepth,IEEE4)
-		FieldNames("LaserSnowDepth:cm")
+		FieldNames("LaserNorthSnowDepth:cm")
 
 		Sample (1,LaserNorthNormalizedSignal,IEEE4)
-		FieldNames("LaserNormalizedSignal:0to255")
+		FieldNames("LaserNorthNormalizedSignal:0to255")
 		
 		Sample (1,LaserNorthSnowFlag,UINT2)
-		FieldNames("LaserSnowFlag:boolean")
+		FieldNames("LaserNorthSnowFlag:boolean")
 
     Sample (1,WindMast_depth,IEEE4)
 		FieldNames("WindMast_depth:cm")
@@ -253,10 +253,9 @@ SlowSequence 'trying slow sequence for MUXers and SDI12 depth sensors to elimina
 				EndIf
 				
         LaserNorthSnowDepth=LaserNorthBuffer(2)/10 'mm to cm
-				'LaserNorthSnowFlag=LaserNorthBuffer(3) set at 130 - too high, using 60
 				LaserNorthNormalizedSignal=LaserNorthBuffer(5)
 				LaserNorthSnowFlag=0
-				If LaserNorthNormalizedSignal >= 60 Then
+				If LaserNorthNormalizedSignal >= 140 Then
 				LaserNorthSnowFlag=1
 				EndIf
 

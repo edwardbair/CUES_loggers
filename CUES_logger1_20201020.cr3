@@ -1,0 +1,295 @@
+'CR3000 Logger 1 program
+'Ned Bair, 2020-10
+
+'DECLARATIONS
+'Use Degrees NOT Radians
+AngleDegrees
+
+'Eppley Radiometers
+'Change these constants when you change the Radiometers. 
+'Note the calibration sensitivities are given in units of 
+'(micro) um Volts / W m^-2. The VoltDiff command uses mV (milliVolts). 
+'So to convert X mV to W/m^2, use the first k value (Vx10^-6 V/(W m^-2)) 
+'and X mV x 1000 uV / 1 mV x W m^-2 /k microV
+
+Const PSP_Up = 1000/8.66 'SN 29448F3, installed 2020-10-22
+Const PSP_Dwn = 1000/8.82 ' SN 26821F3, installed 2020-10-22
+Const PSP_Bunk_Dwn = 1000/8.12 'SN 17736F3, installed 2020-10-22
+Const PSP_RED_Up = 1000/7.81 'SN 17740F3, 2020-10-22
+Const PSP_RED_Dwn = 1000/8.44 'SN 29889F3, installed 2020-10-22
+Const PSP_RED_Bunk_Dwn = 1000/8.13 'SN 29891F3, installed 2020-10-22
+
+'new uplooking boom sensors
+Const PSP_RED_Bunk_Up = 1000/8.35 'SN 29890F3, installed 2020-10-22
+Const PSP_Bunk_Up =  1000/8.24 'SN 29895F3, installed 2020-10-22
+
+Public up_clr,down_clr,bunk_dwn,up_red,down_red,bunk_dwn_red,bunk_up,bunk_up_red
+
+'swapped out radiometers
+'Const PSP_Up = 1000/10.10 'SN 113431F3, installed 2018-9-11
+'Const PSP_Dwn = 1000/7.85 'SN 29904F3, installed 2018-9-11
+'Const PSP_Bunk_Dwn = 1000/7.82 'SN 29774f3, installed 2018-9-11
+'Const PSP_RED_Up = 1000/8.66 'SN 29448f3, installed 2018-9-11
+'Const PSP_RED_Dwn = 1000/8.82 'SN 12608F3, installed 2018-9-11
+'Const PSP_RED_Bunk_Dwn= 1000/9.67 'SN 14502F3, installed 2018-9-11  
+'Const PIR= 1000/3.83 'SN 32037F3, installed 2018-9-11
+
+'Eppley Pyrgeometer 
+Const PIR = 1000/4.26 'SN 31698F3, installed 2020-10-22
+'constants for longwave computation
+Const con1=0.0010295
+Const con2=0.0002391
+Const con3=0.0000001568
+Const const_S_B=5.6704*PWR(10,-8)
+Public LongWave_in,therm_mv,therm_ohm,LW_Temp_K,LongWaveIn_mv
+
+
+'Apogee SI-111 IR temp sensor
+Const mC2 = 76194.3
+Const mC1 = 8067740
+Const mC0 = 1446580000
+
+Const bC2 = 5050.7
+Const bC1 = 67968.5
+Const bC0 = -3334730
+
+Public SB_TempC,SB_TempK,Targ_mV,m,b,Targ_TempK,Targ_TempC
+ 
+'wit-motion HWT RS905-232 accelerometer
+Public WitBuffer As String
+Public pollstr As String
+Public RollL,RollH,Roll,PitchL,PitchH,Pitch,YawL,YawH,Yaw,VL,VH
+
+Public NumberBytesReturned,chksumread,chksumcalc,asum
+Public Active As Boolean
+Const AngleConst=1/32768*180 'deg
+Const BufferSize=15000
+Const Intmax=256
+
+'DeltaT SPN1 Sunshine Pyranometer
+Public Time(9)
+Alias Time(1)=year
+Alias Time(2)=month
+Alias Time(3)=jour
+Alias Time(4)=hour
+Alias Time(5)=minute
+
+Public Sunrise As String *20
+Public Sunset As String *20
+Public SunFlag As Boolean
+
+Public SPN_total,SPN_diff
+Public sun As Boolean
+Public sunflagout, 'booleans are -1 when true, which isn't conventional
+
+Public SPN1String As String *18
+Public SPN1(3)
+
+'Wind Speed/Direction from RM Young Terms
+Public upper_ws,upper_dir
+
+DataTable(Radiometers,1,-1)
+  CardOut(0,-1)
+	DataInterval(0,1,Min,0)
+	
+  Sample (1, sunflagout,String)
+  FieldNames("Sun:boolean")
+
+  Average(1,up_clr,IEEE4, 0)
+  FieldNames("UpLookingPlatformClear:W/m^2")
+	Average(1,down_clr,IEEE4, 0)
+	FieldNames("DownLookingPlatformClear:W/m^2")
+	Average(1,up_red,IEEE4, 0)
+	FieldNames("UpLookingPlatformRed:W/m^2")
+	Average(1,down_red,IEEE4, 0)
+	FieldNames("DownLookingPlatformRed:W/m^2")
+	
+	Average(1,bunk_dwn,IEEE4, 0)
+	FieldNames("DownLookingBunkerClear:W/m^2")
+	Average(1,bunk_dwn_red,IEEE4, 0)
+	FieldNames("DownLookingBunkerRed:W/m^2")
+	Average(1,bunk_up,IEEE4,0)
+  FieldNames("UpLookingBunkerClear:W/m^2")
+	Average(1,bunk_up_red,IEEE4,0)
+	FieldNames("UpLookingBunkerRed:W/m^2")
+	
+  Average(1,SPN_total,IEEE4,0)
+  FieldNames("SPN1Global:W/m^2")
+	Average(1,SPN_diff,IEEE4,0)
+	FieldNames("SPN1Diffuse:W/m^2")
+	
+	Average(1,LongWave_in,IEEE4, 0)
+	FieldNames("PIR:W/m^2")	
+	Average(1,LongWaveIn_mv,IEEE4,0)
+	FieldNames("PIRVoltage:mV")
+  Average(1,LW_Temp_K,IEEE4, 0)
+  FieldNames("PIRTemp,K")
+
+	Average(1,SB_TempC,FP2,0)
+  FieldNames("SI111InternalTemp:deg C")
+	Average(1,Targ_mV,FP2,0)
+	FieldNames("SI111TargetTempVoltage:mV")
+	Average(1,Targ_TempC,FP2,0)
+	FieldNames("SI111TargetTemp:deg C")
+	
+  Average(1,Roll,IEEE4,0)
+  FieldNames("AdjBoomRoll:deg")
+  Average(1,Pitch,IEEE4,0)
+  FieldNames("AdjBoomPitch:deg")
+  Average(1,Yaw,IEEE4,0)
+  FieldNames("AdjBoomYaw:deg")
+
+EndTable
+
+DataTable(Winds,1,-1)
+  CardOut(0,-1)
+	DataInterval(0,1,Min,0)
+	WindVector(1, upper_ws, upper_dir, IEEE4, 0, 0, 0, 0)
+	FieldNames("PV_WindSpeed:m/s,PV_WindDir:m/s,PV_SD_WndDir:m/s")
+EndTable
+    
+'DataTable for SPN1 Sunshine Parameter 
+DataTable(daily,1,-1)
+  CardOut(0,-1)
+  DataInterval(23,24,Hr,0)
+  Sample(1,Sunrise,String)
+  Sample(1,Sunset,String)
+EndTable
+
+'Main Program
+
+BeginProg
+  SerialOpen(Com4,9600,0,0,100)
+  SerialOpen(Com1,9600,3,0,BufferSize)
+	
+Scan(30,Sec, 3, 0)
+
+Active=ComPortIsActive(Com1)
+
+If NOT Active 'wakeup command sent
+  pollstr=CHR(&hFF)+CHR(&hAA)+CHR(&h22)+CHR(&h01)+CHR(&h00)
+  SerialOutBlock(Com1,pollstr,10)
+EndIf
+
+'message, in response to poll command is as follows
+'05:21:20.00 T FF AA 22 01 00 00 00 00 00 00                    ..".......
+'05:21:20.03 R FF AA 22 01 00                                   .."..
+'05:21:20.45 R 55 51 FC FF F6 FF FE 07 0F 09 B3 55 52 00 00 00  UQ.........UR...
+'05:21:20.45 R 00 00 00 0F 09 BF 55 53                          ......US
+'05:21:20.50 R CE FF 14 00 2E 74 19 29 6D 55 54 A2 00 EA FD FC  .....t.)mUT.....
+'05:21:20.50 R FC 0F 09 42
+
+'angle measurements are given between 55 53 [9 1 byte values] 55 54 = 13 bytes
+'0x55 0x53 RollL RollH PitchL PitchH YawL YawH VL VH SUM
+'Calculated formular：
+'Roll(X axis)Roll=((RollH<<8)|RollL)/32768*180(°)
+'Pitch(Y axis)Pitch=((PitchH<<8)|PitchL)/32768*180(°)
+'Yaw(Z axis)Yaw=((YawH<<8)|YawL)/32768*180(°)
+'Version calculated formula：
+'Version=(VH<<8)|VL
+'Checksum：
+'Sum=0x55+0x53+RollH+RollL+PitchH+PitchL+YawH+YawL+VH+VL
+
+'&h55 is 85 in decimal, &h53 is 83
+'each measurement set is spaced with &h55 so search and retrieve the following
+SerialInRecord(Com1,WitBuffer,&H5553,0,&H5554,NumberBytesReturned,01)
+
+'convert each byte in the string to a decimal using ASCII 
+RollL=ASCII(WitBuffer(1,1,1))
+RollH=ASCII(WitBuffer(1,1,2))
+'create unsigned 16-bit number by combining high and low bytes
+'equivalent to: (H<<8) | L, where H is the high byte and L is the low byte
+Roll=(Intmax*RollH+RollL)*AngleConst
+
+PitchL=ASCII(WitBuffer(1,1,3))
+PitchH=ASCII(WitBuffer(1,1,4))
+Pitch=(Intmax*PitchH+PitchL)*AngleConst
+
+YawL=ASCII(WitBuffer(1,1,5))
+YawH=ASCII(WitBuffer(1,1,6))
+Yaw=(Intmax*YawH+YawL)*AngleConst
+
+'version
+VL=ASCII(WitBuffer(1,1,7))
+VH=ASCII(WitBuffer(1,1,8))
+
+'checksum, make sure chksumread & chksumcalc match
+chksumread=ASCII(WitBuffer(1,1,9))
+asum=85+83+RollL+RollH+PitchH+PitchL+YawH+YawL+VL+VH
+chksumcalc=asum MOD Intmax
+
+	 'Apogee Radiometer
+	 Therm109 (SB_TempC,1,9,Vx2,0,_60Hz,1,0)
+	 VoltDiff (Targ_mV,1,mV20,4,True,0,_60Hz,1,0)
+	 m = mC2 * SB_TempC^2 + mC1 * SB_TempC + mC0
+	 b = bC2 * SB_TempC^2 + bC1 * SB_TempC + bC0
+	 
+	 'Calc Target Temperature
+	 SB_TempK=SB_TempC + 273.15
+	 Targ_TempK=(SB_TempK^4+m*Targ_mV+b)^0.25
+	 Targ_TempC =Targ_TempK - 273.15
+	 	  		
+		'Young Wind Speed and Direction
+		PulseCount(upper_ws,1, 1, 1, 1, 0.098, 0)
+		BrHalf(upper_dir, 1,mV1000, 1, VX1, 1, 1000,True, 0,_60Hz,355, 0)
+		
+		'Longwave Eppley - IN
+		VoltDiff(LongWaveIn_mv, 1, mV20, 2, True, 0,_60Hz, PIR, 0)
+		' settling time was 0 -- changed to 10000
+		BrHalf(therm_mv, 1,mV200, 5, VX3, 1, 100,True,0,_60Hz, 1, 0)
+		' Calculation for non battery powered PIR
+		therm_ohm = (7.5*(therm_mv/(1.0-therm_mv)))*1000
+		
+		LW_Temp_K = 1/(con1+con2*LN(therm_ohm)+con3*(LN(therm_ohm))^3)
+		LongWave_in = LongWaveIn_mv+const_S_B*(LW_Temp_K)^4
+		
+		'Eppley PSPs
+		VoltDiff(bunk_up_red, 1,AutoRange,6, true, 0,_60Hz, PSP_RED_Bunk_Up, 0)
+		VoltDiff(bunk_up, 1,AutoRange,7, true, 0,_60Hz, PSP_Bunk_Up, 0)
+		
+		VoltDiff(up_clr, 1,AutoRange, 8, true, 0,_60Hz, PSP_Up, 0)
+		VoltDiff(up_red, 1,AutoRange, 9, true,0,_60Hz, PSP_RED_Up, 0)
+		VoltDiff(down_clr, 1,AutoRange, 10, true, 0,_60Hz, PSP_Dwn, 0)
+		VoltDiff(down_red, 1,AutoRange,11, true, 0,_60Hz, PSP_RED_Dwn, 0)
+		VoltDiff(bunk_dwn, 1,AutoRange,12, true, 0,_60Hz, PSP_Bunk_Dwn, 0)
+		VoltDiff(bunk_dwn_red, 1,AutoRange,13, true, 0,_60Hz, PSP_RED_Bunk_Dwn, 0)
+		
+		'Read SPN1 Autoshadowband
+		  SerialOut(Com4,"R","",1,1)
+		  Delay(1,1,Sec)
+      SerialOut(Com4,"S","",1,1)
+      SerialIn(SPN1String,Com4,100,13,18)
+      
+      ' ** Changes SPN1 String into SPN1 component numbers
+		  SplitStr(SPN1(1),SPN1String,"none",3,0)
+		  SPN_total = SPN1(1)
+		  SPN_diff = SPN1(2)
+		  sun = SPN1(3)
+		  
+      sunflagout=0
+		  If sun = true
+		    sunflagout = 1
+		 EndIf
+		  
+		 	If (SunFlag = False)
+		   If (sun = True)
+		        RealTime(Time())
+		        Sunrise = year+"/"+month+"/"+jour+"  "+hour+":"+minute
+		        SunFlag = True
+		   EndIf
+	    EndIf
+	 
+	    If (SunFlag = True)
+		   If (sun = False)
+		        RealTime(Time())
+		        Sunset = year+"/"+month+"/"+jour+"  "+hour+":"+minute
+		        SunFlag = False
+		   EndIf
+	   EndIf
+ 
+		CallTable Winds
+		CallTable Radiometers
+		CallTable daily
+	
+	NextScan
+EndProg
